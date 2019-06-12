@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "tagit"
+version = "0.0.1"
+description = "An antotagger for git."
+authors = ["pwwang <pwwang@pwwang.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.4"
+python-simpleconf = "^0.1.0"
+pyparam = "^0.1.0"
+cmdy = "^0.1.0"
+prompt_toolkit = "^2.0.0"
+
+[tool.poetry.scripts]
+tagit = "tagit:main"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
