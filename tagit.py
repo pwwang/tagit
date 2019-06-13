@@ -259,7 +259,7 @@ def tag(options):
 
 	if ver3:
 		_log('New version received: %r' % ver3)
-		if checktoml and ver1 != ver3:
+		if checktoml and str(ver1) != ver3:
 			raise TomlVersionBehindException(
 				'Expect %r in pyproject.toml, but got %r' % (ver3, ver1))
 		_version_in_changelog(ver3, changelog)
