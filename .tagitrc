@@ -1,0 +1,4 @@
+[TAGIT]
+changelog = py:False
+checktoml = py:True
+increment = patch
