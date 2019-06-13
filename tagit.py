@@ -109,7 +109,7 @@ def _color(msg, color = '\x1b[31m'):
 	return color + msg + '\x1b[0m'
 
 def _log(msg):
-	print('%s\n' % _color('[TAGIT] ' + msg, color = '\x1b[32m'))
+	print('%s' % _color('[TAGIT] ' + msg, color = '\x1b[32m'))
 
 class QuietException(Exception):
 	def __init__(self, msg):
@@ -186,7 +186,7 @@ def test(options):
 	ver1 = ver1 or (0, 0, 0)
 	ver2 = ver2 or (0, 0, 0)
 	ver3 = max(ver1, ver2)
-	_log('You are good to go.')
+	_log('You are good to go, current version: %s' % ver2)
 	_log('Next auto patch version is: %s' % ver3.increment('patch'))
 	_log('Next auto minor version is: %s' % ver3.increment('minor'))
 	_log('Next auto major version is: %s' % ver3.increment('major'))
