@@ -6,6 +6,10 @@ build-backend = "poetry.masonry.api"
 name = "tagit"
 version = "0.0.1"
 description = "An antotagger for git."
+readme = "README.md"
+homepage = "https://github.com/pwwang/tagit"
+license = "MIT"
+repository = "https://github.com/pwwang/completions"
 authors = [ "pwwang <pwwang@pwwang.com>",]
 
 [tool.poetry.dependencies]
