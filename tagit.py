@@ -146,7 +146,6 @@ def _get_version_from_toml():
 	if not tomlfile.exists():
 		return None
 	parsed = toml.load(tomlfile)
-	print(parsed)
 	if not parsed.get('tool', {}).get('poetry', {}).get('version'):
 		return None
 	return Tag(parsed['tool']['poetry']['version'])
@@ -260,9 +259,9 @@ def tag(options):
 
 	if ver3:
 		_log('New version received: %r' % ver3)
-		if checktoml and ver2 != ver3:
+		if checktoml and ver1 != ver3:
 			raise TomlVersionBehindException(
-				'Expect %r in pyproject.toml, but got %r' % (ver3, ver2))
+				'Expect %r in pyproject.toml, but got %r' % (ver3, ver1))
 		_version_in_changelog(ver3, changelog)
 	else:
 		ver1 = ver1 or (0, 0, 0)
