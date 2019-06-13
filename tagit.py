@@ -71,6 +71,9 @@ commands.tag._helpx      = lambda helps: helps.select('optional').before('-h',
 	 ('-c.i, -c.increment', '<STR>',
 	  'Which part of the version to be incremented.\nDefault: patch')])
 
+commands.test = 'Test if anything new added and I can tag next version.'
+commands.test._hbald = False
+
 commands.version        = 'Show current version of tagit'
 commands.version._hbald = False
 
@@ -167,28 +170,26 @@ def _version_in_changelog(ver, changelog):
 			raise NoVersionInChangeLogException(
 				'Verion %r not mentioned in %r' % (ver, changelog))
 
-# def _is_hook_installed(gitdir):
-# 	return (gitdir / '.git' / 'hooks' / 'tagit.py').exists()
+def test(options):
+	status = git.status(s = True).str()
+	cherry = git.cherry(v = True).str()
+	if status or cherry:
+		raise UncleanRepoException(
+			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
+	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
+	ver2 = _get_version_from_gittag()
 
-# def install(options):
-# 	gitdir  = Path(options['dir'])
-# 	if _is_hook_installed(gitdir):
-# 		print('Hook file has already been installed at %s\n' % (gitdir / '.git' / 'hooks' / 'tagit.py'))
-# 		return
-# 	hookdir = gitdir / '.git' / 'hooks'
-# 	if not hookdir.exists():
-# 		raise NotAGitDirException('%r' % gitdir)
-# 	entryfile = hookdir / 'post-push'
-# 	hookfile  = hookdir / 'tagit.py'
-# 	entry     = "\n# Added by tagit, do NOT modify #\n" + \
-# 				("python %s\n" % hookfile) + \
-# 				"# End tagit\n"
-# 	entrysrc  = entryfile.read_text() if entryfile.exists() else '#!/bin/sh\n'
-# 	if entry not in entrysrc:
-# 		entryfile.write_text(entrysrc + entry)
-# 	realhook = Path(__file__).resolve().parent / 'hook.py'
-# 	hookfile.write_text(realhook.read_text())
-# 	print('Hook file installed at %s' % hookfile)
+	if lastmsg == str(ver2):
+		raise NoChangesSinceLastTagException('No changes since last tag.')
+
+	ver1 = _get_version_from_toml()
+	ver1 = ver1 or (0, 0, 0)
+	ver2 = ver2 or (0, 0, 0)
+	ver3 = max(ver1, ver2)
+	_log('You are good to go.')
+	_log('Next auto patch version is: %s' % vers.increment('patch'))
+	_log('Next auto minor version is: %s' % vers.increment('minor'))
+	_log('Next auto major version is: %s' % vers.increment('major'))
 
 def version(options):
 	ver = _get_version_from_toml()
