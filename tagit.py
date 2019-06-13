@@ -146,6 +146,7 @@ def _get_version_from_toml():
 	if not tomlfile.exists():
 		return None
 	parsed = toml.load(tomlfile)
+	print(parsed)
 	if not parsed.get('tool', {}).get('poetry', {}).get('version'):
 		return None
 	return Tag(parsed['tool']['poetry']['version'])
