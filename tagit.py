@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 import toml
 from prompt_toolkit import prompt
-from cmdy import git, poetry
+from cmdy import git, poetry, CmdyReturnCodeException
 from pyparam import commands
 from simpleconf import Config
 
@@ -133,7 +133,10 @@ def quiet_hook(kind, message, traceback):
 sys.excepthook = quiet_hook
 
 def _get_version_from_gittag():
-	lastag = git.describe(tags = True, abbrev = 0, _sep = '=').strip()
+	try:
+		lastag = git.describe(tags = True, abbrev = 0, _sep = '=').strip()
+	except CmdyReturnCodeException:
+		lastag = None
 	if not lastag:
 		return None
 	return Tag(lastag)
