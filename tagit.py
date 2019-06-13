@@ -187,9 +187,9 @@ def test(options):
 	ver2 = ver2 or (0, 0, 0)
 	ver3 = max(ver1, ver2)
 	_log('You are good to go.')
-	_log('Next auto patch version is: %s' % vers.increment('patch'))
-	_log('Next auto minor version is: %s' % vers.increment('minor'))
-	_log('Next auto major version is: %s' % vers.increment('major'))
+	_log('Next auto patch version is: %s' % ver3.increment('patch'))
+	_log('Next auto minor version is: %s' % ver3.increment('minor'))
+	_log('Next auto major version is: %s' % ver3.increment('major'))
 
 def version(options):
 	ver = _get_version_from_toml()
