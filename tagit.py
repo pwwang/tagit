@@ -78,11 +78,11 @@ commands.version        = 'Show current version of tagit'
 commands.version._hbald = False
 
 class Tag:
-	def __init__(self, tag):
+	def __init__(self, atag):
 		# TODO: check tag
-		self.major, self.minor, self.patch = tag if isinstance(tag, tuple) \
-			else (tag.major, tag.minor, tag.patch) if isinstance(tag, Tag) \
-			else tuple(int(x) for x in tag.split('.'))
+		self.major, self.minor, self.patch = atag if isinstance(atag, tuple) \
+			else (atag.major, atag.minor, atag.patch) if isinstance(atag, Tag) \
+			else tuple(int(x) for x in atag.split('.'))
 	def __str__(self):
 		return '%s.%s.%s' % self.tuple()
 	def __repr__(self):
@@ -171,9 +171,9 @@ def _version_in_changelog(ver, changelog):
 				'Verion %r not mentioned in %r' % (ver, changelog))
 
 def status(options):
-	status = git.status(s = True).str()
+	gitstatus = git.status(s = True).str()
 	cherry = git.cherry(v = True).str()
-	if status or cherry:
+	if gitstatus or cherry:
 		raise UncleanRepoException(
 			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
 	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
@@ -191,10 +191,11 @@ def status(options):
 	options._load('./.tagitrc')
 	options._use('TAGIT')
 	changelog = options.get('changelog')
+	increment = options.get('increment', 'patch')
 
 	_log('Current version: %s' % ver2)
 
-	nextver = ver3.increment('patch')
+	nextver = ver3.increment(increment)
 	_log('Next auto patch version is: %s' % nextver)
 
 	goodtogo = True
@@ -207,7 +208,9 @@ def status(options):
 		else:
 			goodtogo = True
 	if goodtogo:
-		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
+		_log('  You are good to go with this version.')
+		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
+		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
 
 	nextver = ver3.increment('minor')
 	_log('Next auto minor version is: %s' % nextver)
@@ -222,7 +225,9 @@ def status(options):
 		else:
 			goodtogo = True
 	if goodtogo:
-		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
+		_log('  You are good to go with this version.')
+		shortcmd = '`tagit tag`, ' if increment == 'minor' else ''
+		_log('  Run %s`tagit tag -c.i minor` or `tagit tag %s`' % (shortcmd, nextver))
 
 	nextver = ver3.increment('major')
 	_log('Next auto major version is: %s' % nextver)
@@ -237,7 +242,9 @@ def status(options):
 		else:
 			goodtogo = True
 	if goodtogo:
-		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
+		_log('  You are good to go with this version.')
+		shortcmd = '`tagit tag`, ' if increment == 'major' else ''
+		_log('  Run %s`tagit tag -c.i major` or `tagit tag %s`' % (shortcmd, nextver))
 
 def version(options):
 	ver = _get_version_from_toml()
@@ -300,9 +307,9 @@ def tag(options):
 	changelog = default_options.get('changelog')
 	increment = default_options.get('increment', 'patch')
 
-	status = git.status(s = True).str()
+	gitstatus = git.status(s = True).str()
 	cherry = git.cherry(v = True).str()
-	if status or cherry:
+	if gitstatus or cherry:
 		raise UncleanRepoException(
 			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
 
