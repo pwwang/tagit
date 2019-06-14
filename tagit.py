@@ -71,8 +71,8 @@ commands.tag._helpx      = lambda helps: helps.select('optional').before('-h',
 	 ('-c.i, -c.increment', '<STR>',
 	  'Which part of the version to be incremented.\nDefault: patch')])
 
-commands.test = 'Test if anything new added and I can tag next version.'
-commands.test._hbald = False
+commands.status = 'Show current status of the project.'
+commands.status._hbald = False
 
 commands.version        = 'Show current version of tagit'
 commands.version._hbald = False
@@ -108,8 +108,8 @@ class Tag:
 def _color(msg, color = '\x1b[31m'):
 	return color + msg + '\x1b[0m'
 
-def _log(msg):
-	print('%s' % _color('[TAGIT] ' + msg, color = '\x1b[32m'))
+def _log(msg, color = '\x1b[32m'):
+	print('%s' % _color('[TAGIT] ' + msg, color = color))
 
 class QuietException(Exception):
 	def __init__(self, msg):
@@ -170,7 +170,7 @@ def _version_in_changelog(ver, changelog):
 			raise NoVersionInChangeLogException(
 				'Verion %r not mentioned in %r' % (ver, changelog))
 
-def test(options):
+def status(options):
 	status = git.status(s = True).str()
 	cherry = git.cherry(v = True).str()
 	if status or cherry:
@@ -186,10 +186,58 @@ def test(options):
 	ver1 = ver1 or (0, 0, 0)
 	ver2 = ver2 or (0, 0, 0)
 	ver3 = max(ver1, ver2)
-	_log('You are good to go, current version: %s' % ver2)
-	_log('Next auto patch version is: %s' % ver3.increment('patch'))
-	_log('Next auto minor version is: %s' % ver3.increment('minor'))
-	_log('Next auto major version is: %s' % ver3.increment('major'))
+
+	options = Config()
+	options._load('./.tagitrc')
+	options._use('TAGIT')
+	changelog = options.get('changelog')
+
+	_log('Current version: %s' % ver2)
+
+	nextver = ver3.increment('patch')
+	_log('Next auto patch version is: %s' % nextver)
+
+	goodtogo = True
+	if changelog:
+		try:
+			_version_in_changelog(nextver, changelog)
+		except NoVersionInChangeLogException:
+			goodtogo = False
+			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
+		else:
+			goodtogo = True
+	if goodtogo:
+		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
+
+	nextver = ver3.increment('minor')
+	_log('Next auto minor version is: %s' % nextver)
+
+	goodtogo = True
+	if changelog:
+		try:
+			_version_in_changelog(nextver, changelog)
+		except NoVersionInChangeLogException:
+			goodtogo = False
+			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
+		else:
+			goodtogo = True
+	if goodtogo:
+		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
+
+	nextver = ver3.increment('major')
+	_log('Next auto major version is: %s' % nextver)
+
+	goodtogo = True
+	if changelog:
+		try:
+			_version_in_changelog(nextver, changelog)
+		except NoVersionInChangeLogException:
+			goodtogo = False
+			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
+		else:
+			goodtogo = True
+	if goodtogo:
+		_log('  You are good to go with this version. Run `tagit tag` or `tagit tag %s`' % nextver)
 
 def version(options):
 	ver = _get_version_from_toml()
@@ -201,12 +249,12 @@ def generate_interactive(options):
 	checktoml = prompt('Check `pyproject.toml` has the new version? [T|F]: ', default='True')
 	increment = prompt(
 		'Default part of version to increment? [major|minor|patch]: ', default='patch')
-	generate_rcfile({'c': {
+	generate_rcfile({
 		'changelog': changelog,
 		'publish'  : publish in ('T', 'True'),
 		'checktoml': checktoml in ('T', 'True'),
 		'increment': increment,
-	}}, options['rcfile'])
+	}, options['rcfile'])
 
 def generate_rcfile(options, rcfile):
 	checktoml = options.get('checktoml', True)
