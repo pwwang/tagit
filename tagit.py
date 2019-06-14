@@ -331,8 +331,10 @@ def tag(options):
 	git.push(tag = True, _fg = True)
 
 	if publish:
+		_log('Building the release ...')
+		poetry.build(_fg = True)
 		_log('Publishing the release ...')
-		poetry.publish(build = True, _fg = True)
+		poetry.publish(_fg = True)
 	_log('Done!')
 
 def main():
