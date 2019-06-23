@@ -41,6 +41,9 @@ commands.generate.config      = commands.generate.c
 commands.generate._helpx = lambda helps: helps.select('optional').before('-h',
 	[('-c.changelog', '[AUTO]',
 	  'Path to the changelog file to check if new version is mentioned.'),
+	 ('-c.source', '[AUTO]',
+	  ['Path of the source file to check "__version__" of the module.',
+	   'You could also specify the module name.']),
 	 ('-c.publish', '[BOOL]',
 	  'Whether publish the tag using poetry.'),
 	 ('-c.checktoml', '[BOOL]',
@@ -64,6 +67,9 @@ commands.tag.config      = commands.tag.c
 commands.tag._helpx      = lambda helps: helps.select('optional').before('-h',
 	[('-c.changelog', '[AUTO]',
 	  'Path to the changelog file to check if new version is mentioned.'),
+	 ('-c.source', '[AUTO]',
+	  ['Path of the source file to check "__version__" of the module.',
+	   'You could also specify the module name.']),
 	 ('-c.publish', '[BOOL]',
 	  'Whether publish the tag using poetry.'),
 	 ('-c.checktoml', '[BOOL]',
@@ -162,6 +168,24 @@ def _update_version_to_toml(ver):
 	with open(tomlfile, 'w') as ftoml:
 		toml.dump(parsed, ftoml)
 
+def _get_version_from_source(source):
+	with open(source) as fsrc:
+		for line in fsrc:
+			if line.startswith('__version__'):
+				return line[13:].strip('= "\'\n')
+	return None
+
+def _update_version_to_source(source, version):
+	srcfile = Path(source)
+	lines   = srcfile.read_text().splitlines()
+	srcfile.with_suffix('.py.bak').write_text('\n'.join(lines))
+	for i, line in enumerate(lines):
+		if line.startswith('__version__'):
+			lines[i] = '__version__ = "%s"' % version
+	if lines[-1]:
+		lines.append('')
+	srcfile.write_text('\n'.join(lines))
+
 def _version_in_changelog(ver, changelog):
 	if not changelog:
 		return
@@ -170,81 +194,95 @@ def _version_in_changelog(ver, changelog):
 			raise NoVersionInChangeLogException(
 				'Verion %r not mentioned in %r' % (ver, changelog))
 
-def status(options):
+def _getsrcfile(module):
+	srcfile = Path(module)
+	if not srcfile.is_file() and not module.endswith('.py'): # assuming module name
+		srcfile = Path(__import__(module).__file__)
+		srcfile = srcfile.with_suffix('.py')
+	return srcfile
+
+def _checkver(version, changelog, checksrc, checktoml = False):
+	goodtogo = True
+	if changelog:
+		try:
+			_version_in_changelog(version, changelog)
+		except NoVersionInChangeLogException:
+			goodtogo = False
+			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
+
+	if checksrc:
+		source = _getsrcfile(checksrc)
+		srcver = _get_version_from_source(source)
+		if str(version) != srcver:
+			goodtogo = False
+			_log('  This version is not updated in source file.', color = '\x1b[33m')
+
+	if checktoml:
+		if _get_version_from_toml() != version:
+			goodtogo = False
+			_log('  Version is not updated in pyproject.toml.', color = '\x1b[33m')
+	return goodtogo
+
+def status(options, specver = None, ret = False):
+	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
+	tagver = _get_version_from_gittag()
+
+	if lastmsg == str(tagver):
+		raise NoChangesSinceLastTagException('No changes since last tag.')
+
 	gitstatus = git.status(s = True).str()
 	cherry = git.cherry(v = True).str()
 	if gitstatus or cherry:
 		raise UncleanRepoException(
 			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
 	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
-	ver2 = _get_version_from_gittag()
+	tagver = _get_version_from_gittag()
 
-	if lastmsg == str(ver2):
+	if lastmsg == str(tagver):
 		raise NoChangesSinceLastTagException('No changes since last tag.')
 
-	ver1 = _get_version_from_toml()
-	ver1 = ver1 or (0, 0, 0)
-	ver2 = ver2 or (0, 0, 0)
-	ver3 = max(ver1, ver2)
+	tomlver = _get_version_from_toml()
+	tomlver = tomlver or (0, 0, 0)
+	tagver  = tagver or (0, 0, 0)
+	maxver  = max(tomlver, tagver)
 
 	options = Config()
 	options._load('./.tagitrc')
 	options._use('TAGIT')
 	changelog = options.get('changelog')
 	increment = options.get('increment', 'patch')
+	checksrc  = options.get('source')
 
-	_log('Current version: %s' % ver2)
+	_log('Current version: %s' % tagver)
 
-	nextver = ver3.increment(increment)
+	if ret:
+		nextver = maxver.increment(increment)
+		_log('New version received: %r' % (specver or nextver))
+		return _checkver(specver or nextver, changelog, checksrc, bool(specver))
+
+	nextver = maxver.increment('patch')
 	_log('Next auto patch version is: %s' % nextver)
 
-	goodtogo = True
-	if changelog:
-		try:
-			_version_in_changelog(nextver, changelog)
-		except NoVersionInChangeLogException:
-			goodtogo = False
-			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
-		else:
-			goodtogo = True
-	if goodtogo:
+	if _checkver(nextver, changelog, checksrc):
 		_log('  You are good to go with this version.')
 		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
 		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
 
-	nextver = ver3.increment('minor')
+	nextver = maxver.increment('minor')
 	_log('Next auto minor version is: %s' % nextver)
 
-	goodtogo = True
-	if changelog:
-		try:
-			_version_in_changelog(nextver, changelog)
-		except NoVersionInChangeLogException:
-			goodtogo = False
-			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
-		else:
-			goodtogo = True
-	if goodtogo:
+	if _checkver(nextver, changelog, checksrc):
 		_log('  You are good to go with this version.')
-		shortcmd = '`tagit tag`, ' if increment == 'minor' else ''
-		_log('  Run %s`tagit tag -c.i minor` or `tagit tag %s`' % (shortcmd, nextver))
+		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
+		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
 
-	nextver = ver3.increment('major')
+	nextver = maxver.increment('major')
 	_log('Next auto major version is: %s' % nextver)
 
-	goodtogo = True
-	if changelog:
-		try:
-			_version_in_changelog(nextver, changelog)
-		except NoVersionInChangeLogException:
-			goodtogo = False
-			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
-		else:
-			goodtogo = True
-	if goodtogo:
+	if _checkver(nextver, changelog, checksrc):
 		_log('  You are good to go with this version.')
-		shortcmd = '`tagit tag`, ' if increment == 'major' else ''
-		_log('  Run %s`tagit tag -c.i major` or `tagit tag %s`' % (shortcmd, nextver))
+		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
+		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
 
 def version(options):
 	ver = _get_version_from_toml()
@@ -253,12 +291,14 @@ def version(options):
 def generate_interactive(options):
 	changelog = prompt('Check new mentioned in changelog?: []', default='')
 	publish   = prompt('Use poetry to publish the tag? [T|F]: ', default='True')
-	checktoml = prompt('Check `pyproject.toml` has the new version? [T|F]: ', default='True')
+	checksrc  = prompt('Check source file for the new version? [T|F]: ', default='False')
+	checktoml = prompt('Check `pyproject.toml` for the new version? [T|F]: ', default='True')
 	increment = prompt(
 		'Default part of version to increment? [major|minor|patch]: ', default='patch')
 	generate_rcfile({
 		'changelog': changelog,
 		'publish'  : publish in ('T', 'True'),
+		'source'   : True if checksrc is True else checksrc,
 		'checktoml': checktoml in ('T', 'True'),
 		'increment': increment,
 	}, options['rcfile'])
@@ -267,11 +307,13 @@ def generate_rcfile(options, rcfile):
 	checktoml = options.get('checktoml', True)
 	publish   = options.get('publish', True)
 	changelog = options.get('changelog', False)
+	source    = options.get('source', False)
 	increment = options.get('increment', 'patch')
 	with open(rcfile, 'w') as frc:
 		frc.write('[TAGIT]\n')
 		frc.write('changelog = py:%r\n' % changelog)
 		frc.write('publish = py:%r\n' % publish)
+		frc.write('source = py:%r\n' % source)
 		frc.write('checktoml = py:%r\n' % checktoml)
 		frc.write('increment = %s\n' % increment)
 	_log('rcfile saved to %r' % rcfile)
@@ -289,51 +331,37 @@ def completion(options):
 		print(ret)
 
 def tag(options):
-	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
-	ver2 = _get_version_from_gittag()
-
-	if lastmsg == str(ver2):
-		raise NoChangesSinceLastTagException('No changes since last tag.')
-
-	ver1 = _get_version_from_toml()
-	ver3 = options['_'] # force tag
-
 	default_options = Config()
 	default_options._load('./.tagitrc')
 	default_options._use('TAGIT')
 	default_options.update(options['c'])
-	checktoml = default_options.get('checktoml', True)
 	publish   = default_options.get('publish', True)
 	changelog = default_options.get('changelog')
 	increment = default_options.get('increment', 'patch')
+	checksrc  = default_options.get('source', False)
 
-	gitstatus = git.status(s = True).str()
-	cherry = git.cherry(v = True).str()
-	if gitstatus or cherry:
-		raise UncleanRepoException(
-			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
+	specver = options['_'] or None
+	ret = status(options, specver, True)
 
-	if ver3:
-		_log('New version received: %r' % ver3)
-		if checktoml and str(ver1) != ver3:
-			raise TomlVersionBehindException(
-				'Expect %r in pyproject.toml, but got %r' % (ver3, ver1))
-		_version_in_changelog(ver3, changelog)
-	else:
-		ver1 = ver1 or (0, 0, 0)
-		ver2 = ver2 or (0, 0, 0)
-		ver3 = max(ver1, ver2).increment(increment)
-		_log('New version received: %r' % ver3)
-		_version_in_changelog(ver3, changelog)
-		_log('Updating version in pyproject.toml ...')
-		_update_version_to_toml(ver3)
-		_log('Committing the change ...')
-		git.commit(a = True, m = str(ver3), _fg = True)
-		_log('Pushing the commit to remote ...')
-		git.push(_fg = True)
+	if not ret:
+		return
 
-	_log('Adding tag %r ...' % ver3)
-	git.tag(str(ver3), _fg = True)
+	tomlver = _get_version_from_toml() or (0, 0, 0)
+	tagver  = _get_version_from_gittag() or (0, 0, 0)
+	specver = specver or max(tomlver, tagver).increment(increment)
+
+	_version_in_changelog(specver, changelog)
+	_log('Updating version in pyproject.toml ...')
+	if checksrc:
+		_update_version_to_source(_getsrcfile(checksrc), specver)
+	_update_version_to_toml(specver)
+	_log('Committing the change ...')
+	git.commit(a = True, m = str(specver), _fg = True)
+	_log('Pushing the commit to remote ...')
+	git.push(_fg = True)
+
+	_log('Adding tag %r ...' % specver)
+	git.tag(str(specver), _fg = True)
 	_log('Pushing the tag to remote ...')
 	git.push(tag = True, _fg = True)
 
