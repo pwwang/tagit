@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 import toml
 from prompt_toolkit import prompt
-from cmdy import git, poetry, CmdyReturnCodeException
+from cmdy import git, poetry, CmdyReturnCodeException, bash
 from pyparam import commands
 from simpleconf import Config
 
@@ -19,15 +19,6 @@ commands.completion.shell  = commands.completion.s
 commands.completion.a      = False
 commands.completion.a.desc = 'Automatically write the completion scripts'
 commands.completion.auto   = commands.completion.a
-
-# commands.install = [
-# 	'Install a git-receive hook.',
-# 	'So tagging will be triggered after `git push`']
-# commands.install._hbald   = False
-# commands.install.dir      = './'
-# commands.install.dir.desc = [
-# 	'The git project directory to install.',
-# 	'Will install to `<dir>/.git/hooks`']
 
 commands.generate             = 'Generate a rcfile.'
 commands.generate.i           = True
@@ -41,13 +32,20 @@ commands.generate.config      = commands.generate.c
 commands.generate._helpx = lambda helps: helps.select('optional').before('-h',
 	[('-c.changelog', '[AUTO]',
 	  'Path to the changelog file to check if new version is mentioned.'),
-	 ('-c.source', '[AUTO]',
+	 ('-c.versource', '[AUTO]',
 	  ['Path of the source file to check "__version__" of the module.',
-	   'You could also specify the module name.']),
+	   'You could also specify the module name.',
+	   'Then <module>.py or <module>/__init__.py will be used.']),
+	 ('-c.checksource', '[BOOL]',
+	  'Should we check the version in source file or just update?'),
 	 ('-c.publish', '[BOOL]',
 	  'Whether publish the tag using poetry.'),
+	 ('-c.vertoml', '[BOOL]',
+	  'Path of toml with version defined. Typically ./pyproject.toml'),
 	 ('-c.checktoml', '[BOOL]',
-	  'Check `pyproject.toml` has the new version.'),
+	  'Should we check the version in toml file or just update?'),
+	 ('-c.extra', '<STR>',
+	  'Extra commands to run before commit and push the tag.'),
 	 ('-c.i, -c.increment', '<STR>',
 	  'Which part of the version to be incremented.\nDefault: patch')])
 
@@ -64,18 +62,7 @@ commands.tag.c.callback  = lambda param: param.value.update(dict(
 	increment = param.value.get('i', param.value.get('increment', 'patch')),
 ))
 commands.tag.config      = commands.tag.c
-commands.tag._helpx      = lambda helps: helps.select('optional').before('-h',
-	[('-c.changelog', '[AUTO]',
-	  'Path to the changelog file to check if new version is mentioned.'),
-	 ('-c.source', '[AUTO]',
-	  ['Path of the source file to check "__version__" of the module.',
-	   'You could also specify the module name.']),
-	 ('-c.publish', '[BOOL]',
-	  'Whether publish the tag using poetry.'),
-	 ('-c.checktoml', '[BOOL]',
-	  'Check `pyproject.toml` has the new version.'),
-	 ('-c.i, -c.increment', '<STR>',
-	  'Which part of the version to be incremented.\nDefault: patch')])
+commands.tag._helpx      = commands.generate._helpx
 
 commands.status = 'Show current status of the project.'
 commands.status._hbald = False
@@ -85,10 +72,26 @@ commands.version._hbald = False
 
 class Tag:
 	def __init__(self, atag):
-		# TODO: check tag
-		self.major, self.minor, self.patch = atag if isinstance(atag, tuple) \
-			else (atag.major, atag.minor, atag.patch) if isinstance(atag, Tag) \
-			else tuple(int(x) for x in atag.split('.'))
+		if isinstance(atag, str):
+			if atag.count('.') != 2:
+				raise ValueError('Invalid semantic tag: %s' % atag)
+			self.major, self.minor, self.patch = atag.split('.')
+			if not self.major.isdigit() or not self.minor.isdigit() or not self.patch.isdigit():
+				raise ValueError('Invalid semantic tag: %s' % atag)
+			self.major, self.minor, self.patch = \
+				int(self.major), int(self.minor), int(self.patch)
+		elif isinstance(atag, Tag):
+			self.major, self.minor, self.patch = atag.major, atag.minor, atag.patch
+		elif isinstance(atag, (tuple, list)):
+			if len(atag) != 3:
+				raise ValueError('Invalid semantic tag: %s' % atag)
+			self.major, self.minor, self.patch = atag
+			try:
+				self.major, self.minor, self.patch = \
+					int(self.major), int(self.minor), int(self.patch)
+			except (ValueError, TypeError):
+				raise ValueError('Invalid semantic tag: %s' % atag)
+
 	def __str__(self):
 		return '%s.%s.%s' % self.tuple()
 	def __repr__(self):
@@ -150,8 +153,8 @@ def _get_version_from_gittag():
 		return None
 	return Tag(lastag)
 
-def _get_version_from_toml():
-	tomlfile = Path('.') / 'pyproject.toml'
+def _get_version_from_toml(vertoml):
+	tomlfile = Path(vertoml)
 	if not tomlfile.exists():
 		return None
 	parsed = toml.load(tomlfile)
@@ -159,24 +162,25 @@ def _get_version_from_toml():
 		return None
 	return Tag(parsed['tool']['poetry']['version'])
 
-def _update_version_to_toml(ver):
-	tomlfile = Path('.') / 'pyproject.toml'
+def _update_version_to_toml(ver, vertoml):
+	tomlfile = Path(vertoml)
 	if not tomlfile.exists():
 		return
+	tomlfile.with_suffix('.toml.bak').write_text(tomlfile.read_text())
 	parsed = toml.load(tomlfile)
 	parsed['tool']['poetry']['version'] = str(ver)
 	with open(tomlfile, 'w') as ftoml:
 		toml.dump(parsed, ftoml)
 
-def _get_version_from_source(source):
-	with open(source) as fsrc:
+def _get_version_from_source(versource):
+	with open(versource) as fsrc:
 		for line in fsrc:
 			if line.startswith('__version__'):
 				return line[13:].strip('= "\'\n')
 	return None
 
-def _update_version_to_source(source, version):
-	srcfile = Path(source)
+def _update_version_to_source(versource, version):
+	srcfile = Path(versource)
 	lines   = srcfile.read_text().splitlines()
 	srcfile.with_suffix('.py.bak').write_text('\n'.join(lines))
 	for i, line in enumerate(lines):
@@ -201,7 +205,7 @@ def _getsrcfile(module):
 		srcfile = srcfile.with_suffix('.py')
 	return srcfile
 
-def _checkver(version, changelog, checksrc, checktoml = False):
+def _checkver(version, changelog, versource, vertoml, checksource, checktoml):
 	goodtogo = True
 	if changelog:
 		try:
@@ -210,112 +214,138 @@ def _checkver(version, changelog, checksrc, checktoml = False):
 			goodtogo = False
 			_log('  This version is not mentioned in CHANGELOG!', color = '\x1b[33m')
 
-	if checksrc:
-		source = _getsrcfile(checksrc)
-		srcver = _get_version_from_source(source)
+	if versource and checksource:
+		versource = _getsrcfile(versource)
+		srcver = _get_version_from_source(versource)
 		if str(version) != srcver:
 			goodtogo = False
-			_log('  This version is not updated in source file.', color = '\x1b[33m')
+			_log('  This version is not updated in versource file.', color = '\x1b[33m')
 
-	if checktoml:
-		if _get_version_from_toml() != version:
+	if vertoml and checktoml:
+		tomlver = _get_version_from_toml(vertoml)
+		if str(tomlver) != str(version):
 			goodtogo = False
-			_log('  Version is not updated in pyproject.toml.', color = '\x1b[33m')
+			_log('  Version is not updated in pyproject.toml (%s).' % tomlver, color = '\x1b[33m')
 	return goodtogo
 
 def status(options, specver = None, ret = False):
-	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
 	tagver = _get_version_from_gittag()
 
-	if lastmsg == str(tagver):
-		raise NoChangesSinceLastTagException('No changes since last tag.')
-
+	exception = None
 	gitstatus = git.status(s = True).str()
 	cherry = git.cherry(v = True).str()
 	if gitstatus or cherry:
-		raise UncleanRepoException(
+		exception =  UncleanRepoException(
 			'You have changes uncommitted or unpushed.\n\n' + git.status().str())
 	lastmsg = git.log('-1', pretty = "format:%s", _sep = '=').strip()
-	tagver = _get_version_from_gittag()
 
 	if lastmsg == str(tagver):
 		raise NoChangesSinceLastTagException('No changes since last tag.')
 
-	tomlver = _get_version_from_toml()
-	tomlver = tomlver or (0, 0, 0)
 	tagver  = tagver or (0, 0, 0)
-	maxver  = max(tomlver, tagver)
 
-	options = Config()
-	options._load('./.tagitrc')
-	options._use('TAGIT')
-	changelog = options.get('changelog')
-	increment = options.get('increment', 'patch')
-	checksrc  = options.get('source')
+	rcoptions = Config()
+	rcoptions._load('./.tagitrc')
+	rcoptions._use('TAGIT')
+	rcoptions.update(options)
+	changelog   = rcoptions.get('changelog', '')
+	increment   = rcoptions.get('increment', 'patch')
+	versource   = rcoptions.get('versource', '')
+	vertoml     = rcoptions.get('vertoml', '')
+	checksource = rcoptions.get('checksource', True)
+	checktoml   = rcoptions.get('checktoml', True)
 
 	_log('Current version: %s' % tagver)
 
 	if ret:
-		nextver = maxver.increment(increment)
+		nextver = tagver.increment(increment)
 		_log('New version received: %r' % (specver or nextver))
-		return _checkver(specver or nextver, changelog, checksrc, bool(specver))
+		if exception:
+			raise exception
+		return _checkver(specver or nextver, changelog, versource, vertoml, checksource, checktoml)
 
-	nextver = maxver.increment('patch')
+	nextver = tagver.increment('patch')
 	_log('Next auto patch version is: %s' % nextver)
 
-	if _checkver(nextver, changelog, checksrc):
+	if _checkver(nextver, changelog, versource, vertoml, checksource, checktoml):
 		_log('  You are good to go with this version.')
 		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
 		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
 
-	nextver = maxver.increment('minor')
+	nextver = tagver.increment('minor')
 	_log('Next auto minor version is: %s' % nextver)
 
-	if _checkver(nextver, changelog, checksrc):
+	if _checkver(nextver, changelog, versource, vertoml, checksource, checktoml):
 		_log('  You are good to go with this version.')
-		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
-		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
+		shortcmd = '`tagit tag`, ' if increment == 'minor' else ''
+		_log('  Run %s`tagit tag -c.i minor` or `tagit tag %s`' % (shortcmd, nextver))
 
-	nextver = maxver.increment('major')
+	nextver = tagver.increment('major')
 	_log('Next auto major version is: %s' % nextver)
 
-	if _checkver(nextver, changelog, checksrc):
+	if _checkver(nextver, changelog, versource, vertoml, checksource, checktoml):
 		_log('  You are good to go with this version.')
-		shortcmd = '`tagit tag`, ' if increment == 'patch' else ''
-		_log('  Run %s`tagit tag -c.i patch` or `tagit tag %s`' % (shortcmd, nextver))
+		shortcmd = '`tagit tag`, ' if increment == 'major' else ''
+		_log('  Run %s`tagit tag -c.i major` or `tagit tag %s`' % (shortcmd, nextver))
+
+	if exception:
+		raise exception
 
 def version(options):
 	ver = _get_version_from_toml()
 	_log('Current version: %s' % ver)
 
 def generate_interactive(options):
-	changelog = prompt('Check new mentioned in changelog?: []', default='')
-	publish   = prompt('Use poetry to publish the tag? [T|F]: ', default='True')
-	checksrc  = prompt('Check source file for the new version? [T|F]: ', default='False')
-	checktoml = prompt('Check `pyproject.toml` for the new version? [T|F]: ', default='True')
-	increment = prompt(
-		'Default part of version to increment? [major|minor|patch]: ', default='patch')
+	changelog   = prompt('Check new mentioned in changelog?: [] ', default='')
+	publish     = prompt('Use poetry to publish the tag? [T|F] ', default='False')
+	versource   = prompt('Check source file for the new version? [] ', default='')
+	vertoml     = prompt(
+		'Check `pyproject.toml` for the new version? [./pyproject.toml] ',
+		default='./pyproject.toml')
+	checksource = prompt('Check version in source file? [T|F] ', default='True')
+	checktoml   = prompt('Check version in toml file? [T|F] ', default='True')
+	increment   = prompt(
+		'Default part of version to increment? [major|minor|patch] ', default='patch')
+	extra       = prompt(
+		'Extra commands to run before commit and push the tag [] ', default='')
 	generate_rcfile({
-		'changelog': changelog,
-		'publish'  : publish in ('T', 'True'),
-		'source'   : True if checksrc is True else checksrc,
-		'checktoml': checktoml in ('T', 'True'),
-		'increment': increment,
+		'changelog'  : changelog,
+		'publish'    : publish in ('T', 'True'),
+		'checksource': checksource in ('T', 'True'),
+		'checktoml'  : checktoml in ('T', 'True'),
+		'versource'  : versource,
+		'vertoml'    : vertoml,
+		'increment'  : increment,
+		'extra'      : extra,
 	}, options['rcfile'])
 
 def generate_rcfile(options, rcfile):
-	checktoml = options.get('checktoml', True)
-	publish   = options.get('publish', True)
-	changelog = options.get('changelog', False)
-	source    = options.get('source', False)
-	increment = options.get('increment', 'patch')
+	vertoml     = options.get('vertoml', '')
+	publish     = options.get('publish', False)
+	checksource = options.get('checksource', True)
+	checktoml   = options.get('checktoml', True)
+	changelog   = options.get('changelog', '')
+	versource   = options.get('versource', '')
+	increment   = options.get('increment', 'patch')
+	extra       = options.get('extra', '')
 	with open(rcfile, 'w') as frc:
 		frc.write('[TAGIT]\n')
-		frc.write('changelog = py:%r\n' % changelog)
-		frc.write('publish = py:%r\n' % publish)
-		frc.write('source = py:%r\n' % source)
-		frc.write('checktoml = py:%r\n' % checktoml)
-		frc.write('increment = %s\n' % increment)
+		frc.write('; The change log file to check when version is mentioned.\n')
+		frc.write('changelog = %s\n\n' % changelog)
+		frc.write('; Whether publish the package after the tag pushed to server.\n')
+		frc.write('publish = py:%r\n\n' % publish)
+		frc.write('; Whether check the version (__version__) in source file.\n')
+		frc.write('checksource = py:%r\n\n' % checksource)
+		frc.write('; Whether check the version in pyproject.toml file.\n')
+		frc.write('checktoml = py:%r\n\n' % checktoml)
+		frc.write('; The source file or the package name.\n')
+		frc.write('versource = %s\n\n' % versource)
+		frc.write('; The toml file, typically pyproject.toml.\n')
+		frc.write('vertoml = %s\n\n' % vertoml)
+		frc.write('; Which part of the version to increment for auto-tagging.\n')
+		frc.write('increment = %s\n\n' % increment)
+		frc.write('; Extra commands to run before tag committed and pushed.\n')
+		frc.write('extra = py:%r\n\n' % extra)
 	_log('rcfile saved to %r' % rcfile)
 
 def generate(options):
@@ -335,28 +365,39 @@ def tag(options):
 	default_options._load('./.tagitrc')
 	default_options._use('TAGIT')
 	default_options.update(options['c'])
-	publish   = default_options.get('publish', True)
-	changelog = default_options.get('changelog')
-	increment = default_options.get('increment', 'patch')
-	checksrc  = default_options.get('source', False)
+	publish     = default_options.get('publish', False)
+	changelog   = default_options.get('changelog', '')
+	increment   = default_options.get('increment', 'patch')
+	versource   = default_options.get('versource', '')
+	vertoml     = default_options.get('vertoml', '')
+	checksource = default_options.get('checksource', True)
+	checktoml   = default_options.get('checktoml', True)
+	extra       = default_options.get('extra', '')
 
 	specver = options['_'] or None
-	ret = status(options, specver, True)
+	ret = status(default_options, specver, True)
 
 	if not ret:
 		return
 
-	tomlver = _get_version_from_toml() or (0, 0, 0)
 	tagver  = _get_version_from_gittag() or (0, 0, 0)
-	specver = specver or max(tomlver, tagver).increment(increment)
+	specver = specver or tagver.increment(increment)
 
-	_version_in_changelog(specver, changelog)
-	_log('Updating version in pyproject.toml ...')
-	if checksrc:
-		_update_version_to_source(_getsrcfile(checksrc), specver)
-	_update_version_to_toml(specver)
+	if versource:
+		_log('Updating version in source file ...')
+		_update_version_to_source(_getsrcfile(versource), specver)
+
+	if vertoml:
+		_log('Updating version in pyproject.toml ...')
+		_update_version_to_toml(specver, vertoml)
+
+	if extra:
+		cmd = bash(c = extra, _fg = True)
+		if cmd.rc != 0:
+			raise RuntimeError('Failed to run %r' % extra)
+
 	_log('Committing the change ...')
-	git.commit(a = True, m = str(specver), _fg = True)
+	git.commit({'allow-empty': True}, a = True, m = str(specver), _fg = True)
 	_log('Pushing the commit to remote ...')
 	git.push(_fg = True)
 

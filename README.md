@@ -6,7 +6,8 @@ Automation of git tagging
 ## Why?
 While publishing a python package, we need to:
 - Check if CHANGELOG has been updated,
-- Check if version has been updated,
+- Check if version in source file has been updated,
+- Check if version in meta file (e.g. `pyproject.toml`) has been updated
 - If not, update it, commit and push the changes, and then
 - Build and publish the new version
 
@@ -14,7 +15,6 @@ While publishing a python package, we need to:
 It is applicable only when you are:
 - Using strict semantic versioning
 - Using pure version as tag label
-- Configuring your version in `pyproject.toml` that is used by `poetry`
 - Publishing your packaging using `poetry`
 
 ## What it does:
@@ -23,9 +23,12 @@ It is applicable only when you are:
 - In manual version mode (you specify a tag while tagging):
 	- Checks if right version has been placed in `pyproject.toml` in manual version mode.
 	- Checks if the version has been mentioned in CHANGELOG file in manual version mode.
+	- Checks if the version has been updated in source code.
 - In auto version mode (version auto-increments)
 	- Checks if the new version has been mentioned in CHANGELOG
 	- Updates version in `pyproject.toml`
+	- Updates version in source code
+	- Extra commands before changed being committed and pushed
 	- Commits and pushes the changes
 - Then, in all modes:
 	- Tags the version (`git tag <version>`)
