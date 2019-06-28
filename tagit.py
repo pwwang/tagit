@@ -3,6 +3,7 @@ When the tagging is invoked:
 1. commit message is a pure semantic version
 2. version in pyproject.toml is newer than the latest tag
 """
+__version__ = '0.0.5'
 import sys
 import re
 from pathlib import Path
