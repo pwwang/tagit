@@ -243,7 +243,7 @@ def status(options, specver = None, ret = False):
 	if lastmsg == str(tagver):
 		raise NoChangesSinceLastTagException('No changes since last tag.')
 
-	tagver  = tagver or (0, 0, 0)
+	tagver  = tagver or Tag((0, 0, 0))
 
 	rcoptions = Config()
 	rcoptions._load('./.tagitrc')
@@ -256,7 +256,7 @@ def status(options, specver = None, ret = False):
 	checksource = rcoptions.get('checksource', True)
 	checktoml   = rcoptions.get('checktoml', True)
 
-	_log('Current version: %s' % tagver)
+	_log('Current version: %s' % str(tagver))
 
 	if ret:
 		nextver = tagver.increment(increment)
@@ -381,7 +381,7 @@ def tag(options):
 	if not ret:
 		return
 
-	tagver  = _get_version_from_gittag() or (0, 0, 0)
+	tagver  = _get_version_from_gittag() or Tag((0, 0, 0))
 	specver = specver or tagver.increment(increment)
 
 	if versource:
