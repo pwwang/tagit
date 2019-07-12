@@ -14,9 +14,9 @@ authors = [ "pwwang <pwwang@pwwang.com>",]
 
 [tool.poetry.dependencies]
 python = "^3.4"
-python-simpleconf = "^0.1.0"
-pyparam = "^0.1.0"
-cmdy = "^0.1.0"
+python-simpleconf = "*"
+pyparam = "*"
+cmdy = "*"
 toml = "*"
 prompt_toolkit = "^2.0.0"
 
