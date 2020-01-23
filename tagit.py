@@ -396,9 +396,15 @@ def tag(options):
 		cmd = bash(c = extra, _fg = True)
 		if cmd.rc != 0:
 			raise RuntimeError('Failed to run %r' % extra)
-
 	_log('Committing the change ...')
-	git.commit({'allow-empty': True}, a = True, m = str(specver), _fg = True)
+	try:
+		git.commit({'allow-empty': True}, a = True, m = str(specver), _fg = True)
+	except CmdyReturnCodeException:
+		# pre-commit fails, do it again
+		_log('Pre-commit failed, try again ...')
+		git.add('.')
+		git.commit({'allow-empty': True}, a = True, m = str(specver), _fg = True)
+
 	_log('Pushing the commit to remote ...')
 	git.push(_fg = True)
 
