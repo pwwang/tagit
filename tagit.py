@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 import toml
 from prompt_toolkit import prompt
-from cmdy import git, poetry, CmdyReturnCodeException, bash
+from cmdy import git, poetry, CmdyReturnCodeError, bash
 from pyparam import commands
 from simpleconf import Config
 
@@ -185,7 +185,7 @@ sys.excepthook = quiet_hook
 def _get_version_from_gittag():
     try:
         lastag = git.describe(tags=True, abbrev=0, _sep='=').strip()
-    except CmdyReturnCodeException:
+    except CmdyReturnCodeError:
         lastag = None
     if not lastag:
         return None
@@ -207,11 +207,18 @@ def _update_version_to_toml(ver, vertoml):
     if not tomlfile.exists():
         return
     tomlfile.with_suffix('.toml.bak').write_text(tomlfile.read_text())
-    parsed = toml.load(tomlfile)
-    parsed['tool']['poetry']['version'] = str(ver)
-    with open(tomlfile, 'w') as ftoml:
-        toml.dump(parsed, ftoml)
-
+    oldver = _get_version_from_toml(vertoml)
+    updated = []
+    with open(vertoml, 'rt') as ftml:
+        for line in ftml:
+            if (line.rstrip('\r\n')
+                    .replace(' ', '')
+                    .replace('\'', '"') == 'version="%s"' % oldver):
+                updated.append('version = "%s"' % ver)
+            else:
+                updated.append(line.rstrip('\r\n'))
+    with open(vertoml, 'wt') as ftml:
+        ftml.write("\n".join(updated) + "\n")
 
 def _get_version_from_source(versource):
     with open(versource) as fsrc:
@@ -480,31 +487,31 @@ def tag(options):
         _update_version_to_toml(specver, vertoml)
 
     if extra:
-        cmd = bash(c=extra, _fg=True)
+        cmd = bash(c=extra).fg
         if cmd.rc != 0:
             raise RuntimeError('Failed to run %r' % extra)
     _log('Committing the change ...')
     try:
-        git.commit({'allow-empty': True}, a=True, m=str(specver), _fg=True)
-    except CmdyReturnCodeException:
+        git.commit({'allow-empty': True}, a=True, m=str(specver)).fg
+    except CmdyReturnCodeError:
         # pre-commit fails, do it again
         _log('Pre-commit failed, try again ...')
         git.add('.')
-        git.commit({'allow-empty': True}, a=True, m=str(specver), _fg=True)
+        git.commit({'allow-empty': True}, a=True, m=str(specver)).fg
 
     _log('Pushing the commit to remote ...')
-    git.push(_fg=True)
+    git.push().fg
 
     _log('Adding tag %r ...' % specver)
-    git.tag(str(specver), _fg=True)
+    git.tag(str(specver)).fg
     _log('Pushing the tag to remote ...')
-    git.push(tag=True, _fg=True)
+    git.push(tag=True).fg
 
     if publish:
         _log('Building the release ...')
-        poetry.build(_fg=True)
+        poetry.build().fg
         _log('Publishing the release ...')
-        poetry.publish(_fg=True)
+        poetry.publish().fg
     _log('Done!')
 
 
