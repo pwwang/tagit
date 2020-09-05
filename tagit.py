@@ -10,70 +10,77 @@ from pathlib import Path
 import toml
 from prompt_toolkit import prompt
 from cmdy import git, poetry, CmdyReturnCodeError, bash
-from pyparam import commands
+from pyparam import Params, POSITIONAL
 from simpleconf import Config
 
-commands.completion = 'Tab-completions for the program.'
-commands.completion.s = 'auto'
-commands.completion.s.desc = ('The shell. Detect from `os.environ["SHELL"]`'
-                              ' if `auto`.')
-commands.completion.shell = commands.completion.s
-commands.completion.a = False
-commands.completion.a.desc = 'Automatically write the completion scripts'
-commands.completion.auto = commands.completion.a
+params = Params()
+cmd_generate = params.add_command('generate', desc='Generate a rcfile',)
+cmd_generate.add_param('i, interactive', default=True,
+                       desc='Using interactive mode')
+cmd_generate.add_param('rcfile', type='path', default='./.tagrc',
+                       desc='The rcfile.')
+cmd_generate.add_param('c, config', type='ns',
+                       desc='The configurations for the rcfile')
+cmd_generate.add_param('c.changelog', type='path',
+                       desc='Path to the changelog file to check '
+                       'if new version is mentioned.')
+cmd_generate.add_param('c.versource', type='path',
+                       desc='Path of the source file to check '
+                       '"__version__" of the module. You could also specify '
+                       'the module name. Then <module>.py or '
+                       '<module>/__init__.py will be used.')
+cmd_generate.add_param('c.checksource', default=False,
+                       desc='Should we check the version in '
+                       'source file or just update?')
+cmd_generate.add_param('c.publish', default=False,
+                       desc='Whether publish the tag using poetry.')
+cmd_generate.add_param('c.vertoml', type='path',
+                       desc='Path of toml with version defined. '
+                       'Typically ./pyproject.toml')
+cmd_generate.add_param('c.checktoml', default=False,
+                       desc='Should we check the version in '
+                       'toml file or just update?')
+cmd_generate.add_param('c.extra', default='',
+                       desc='Extra commands to run before commit and '
+                       'push the tag.')
+cmd_generate.add_param('c.i, c.increment', default='patch',
+                       desc='Which part of the version to be incremented.')
 
-commands.generate = 'Generate a rcfile.'
-commands.generate.i = True
-commands.generate.i.desc = 'Using interactive mode.'
-commands.generate.interactive = commands.generate.i
-commands.generate.rcfile = './.tagitrc'
-commands.generate.c = {}
-commands.generate.c.desc = 'The configurations for the rcfile'
-commands.generate.config = commands.generate.c
+cmd_tag = params.add_command('tag', desc='Do the tagging', help_on_void=False)
+cmd_tag.add_param('rcfile', type='path', default='./.tagrc',
+                  desc='Use the configurations from the rcfile')
+cmd_tag.add_param(POSITIONAL, type=str, desc='The version to tag.')
+cmd_tag.add_param('c, config', type='ns',
+                       desc='The configurations for the rcfile')
+cmd_tag.add_param('c.changelog', type='path',
+                  desc='Path to the changelog file to check '
+                  'if new version is mentioned.')
+cmd_tag.add_param('c.versource', type='path',
+                  desc='Path of the source file to check '
+                  '"__version__" of the module. You could also specify '
+                  'the module name. Then <module>.py or '
+                  '<module>/__init__.py will be used.')
+cmd_tag.add_param('c.checksource', default=False,
+                  desc='Should we check the version in '
+                  'source file or just update?')
+cmd_tag.add_param('c.publish', default=False,
+                  desc='Whether publish the tag using poetry.')
+cmd_tag.add_param('c.vertoml', type='path',
+                  desc='Path of toml with version defined. '
+                  'Typically ./pyproject.toml')
+cmd_tag.add_param('c.checktoml', default=False,
+                  desc='Should we check the version in '
+                  'toml file or just update?')
+cmd_tag.add_param('c.extra', default='',
+                  desc='Extra commands to run before commit and '
+                  'push the tag.')
+cmd_tag.add_param('c.i, c.increment', default='patch',
+                  desc='Which part of the version to be incremented.')
 
-commands.generate._helpx = lambda helps: helps.select('optional').before(
-    '-h',
-    [('-c.changelog', '[AUTO]',
-      'Path to the changelog file to check if new version is mentioned.'),
-     ('-c.versource', '[AUTO]',
-      ['Path of the source file to check "__version__" of the module.',
-       'You could also specify the module name.',
-       'Then <module>.py or <module>/__init__.py will be used.']),
-     ('-c.checksource', '[BOOL]',
-      'Should we check the version in source file or just update?'),
-     ('-c.publish', '[BOOL]',
-      'Whether publish the tag using poetry.'),
-     ('-c.vertoml', '[BOOL]',
-      'Path of toml with version defined. Typically ./pyproject.toml'),
-     ('-c.checktoml', '[BOOL]',
-      'Should we check the version in toml file or just update?'),
-     ('-c.extra', '<STR>',
-      'Extra commands to run before commit and push the tag.'),
-     ('-c.i, -c.increment', '<STR>',
-      'Which part of the version to be incremented.\nDefault: patch')]
-)
-
-commands.tag = 'Do the tagging.'
-commands.tag._hbald = False
-commands.tag.rcfile = './.tagitrc'
-commands.tag.rcfile.desc = 'Use the configurations from the rcfile'
-commands.tag._.type = str
-commands.tag._.desc = 'The version to tag.'
-commands.tag.c = {}
-commands.tag.c.desc = 'Overwrite the configurations from the rcfile'
-commands.tag.c.callback = lambda param: param.value.update(dict(
-    i=param.value.get('i', param.value.get('increment', 'patch')),
-    increment=param.value.get('i', param.value.get('increment', 'patch')),
-))
-commands.tag.config = commands.tag.c
-commands.tag._helpx = commands.generate._helpx
-
-commands.status = 'Show current status of the project.'
-commands.status._hbald = False
-
-commands.version = 'Show current version of tagit'
-commands.version._hbald = False
-
+params.add_command('status', help_on_void=False,
+                   desc='Show current status of the project')
+params.add_command('version', help_on_void=False,
+                   desc='Show current version of tagit')
 
 class Tag:
     """Class of tag"""
@@ -313,7 +320,7 @@ def status(options, specver=None, ret=False):
     rcoptions = Config()
     rcoptions._load('./.tagitrc')
     rcoptions._use('TAGIT')
-    rcoptions.update(options)
+    rcoptions.update(vars(options))
     changelog = rcoptions.get('changelog', '')
     increment = rcoptions.get('increment', 'patch')
     versource = rcoptions.get('versource', '')
@@ -370,7 +377,7 @@ def version(options): # pylint: disable=unused-argument
     default_options = Config()
     default_options._load('./.tagitrc')
     default_options._use('TAGIT')
-    vertoml = options.get('vertoml', '')
+    vertoml = options.vertoml
     ver = _get_version_from_toml(vertoml)
     _log('Current version: %s' % ver)
 
@@ -444,7 +451,7 @@ def generate(options):
     if interactive:
         generate_interactive(options)
     else:
-        generate_rcfile(options['c'], options['rcfile'])
+        generate_rcfile(vars(options['c']), options['rcfile'])
 
 
 def completion(options):
@@ -459,7 +466,7 @@ def tag(options):
     default_options = Config()
     default_options._load('./.tagitrc')
     default_options._use('TAGIT')
-    default_options.update(options['c'])
+    default_options.update(vars(options['c']))
     publish = default_options.get('publish', False)
     #changelog = default_options.get('changelog', '')
     increment = default_options.get('increment', 'patch')
@@ -469,7 +476,7 @@ def tag(options):
     #checktoml = default_options.get('checktoml', True)
     extra = default_options.get('extra', '')
 
-    specver = options['_'] or None
+    specver = options[POSITIONAL] or None
     ret = status(default_options, specver, True)
 
     if not ret:
@@ -517,8 +524,8 @@ def tag(options):
 
 def main():
     """Main function"""
-    command, options, _ = commands._parse()
-    globals()[command](options)
+    options = params.parse()
+    globals()[options.__command__](options[options.__command__])
 
 
 if __name__ == '__main__':
